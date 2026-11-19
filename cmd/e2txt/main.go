@@ -10,21 +10,63 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"e2txt-go/pkg/epl"
 )
 
-const version = "2.0.0-go"
+// stringList 支持重复指定 -fne，或用逗号一次指定多个。
+type stringList []string
+
+func (s *stringList) String() string { return strings.Join(*s, ",") }
+func (s *stringList) Set(v string) error {
+	for _, part := range strings.Split(v, ",") {
+		if p := strings.TrimSpace(part); p != "" { *s = append(*s, p) }
+	}
+	return nil
+}
+
+const version = "0.1.1"
 
 func main() {
 	mode := flag.String("mode", "info", "运行模式: info | view | source | json | build")
 	src := flag.String("src", "", "源 .e / .ec 文件")
 	dst := flag.String("dst", "", "输出文件（source/json/build 模式）")
+	var fnes stringList
+	flag.Var(&fnes, "fne", "支持库文件 .fne/.fnr（可重复或逗号分隔），用于还原任意库的命令名")
+	fneListMode := flag.Bool("fne-list", false, "仅列出 -fne 指定的支持库命令表并退出")
 	showVer := flag.Bool("version", false, "显示版本")
 	flag.Parse()
 
 	if *showVer {
 		fmt.Printf("e2txt-go v%s\n易语言 .e 源码与文本互转工具\n", version)
+		return
+	}
+
+	// 加载 .fne 命令表（供命令名还原使用，或 -fne-list 直接列出）。
+	var loaded []*epl.FneLib
+	for _, path := range fnes {
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: 读取支持库失败 %s: %v\n", path, err)
+			os.Exit(2)
+		}
+		lib, err := epl.LoadFne(raw, filepath.Base(path))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "ERROR: 解析支持库失败 %s: %v\n", path, err)
+			os.Exit(2)
+		}
+		loaded = append(loaded, lib)
+		epl.RegisterFne(lib)
+		fmt.Fprintf(os.Stderr, "已载入支持库: %s（%d 条命令）\n", lib.Name, lib.Count)
+	}
+	if *fneListMode {
+		for _, lib := range loaded {
+			fmt.Printf("=== %s | %s | GUID=%s | %d 命令 ===\n", lib.FileName, lib.Name, lib.Guid, lib.Count)
+			for id := int32(0); id < int32(lib.Count); id++ {
+				if n, ok := lib.Commands[id]; ok { fmt.Printf("  %4d  %s\n", id, n) }
+			}
+		}
 		return
 	}
 	if *src == "" {
@@ -100,12 +142,14 @@ func main() {
 }
 
 func usage() {
-	fmt.Println("用法: e2txt-go -mode <info|view|source|json|build> -src <文件.e> [-dst <输出文件>]")
+	fmt.Println("用法: e2txt-go -mode <info|view|source|json|build> -src <文件.e> [-dst <输出文件>] [-fne <支持库.fne>]")
 	fmt.Println("  info   - 工程统计")
 	fmt.Println("  view   - 结构化查看（程序集/子程序/DLL/支持库）")
 	fmt.Println("  source - 反编译为易语言文本源码")
 	fmt.Println("  json   - 导出完整解析结构为 JSON")
 	fmt.Println("  build  - 反向生成：把模型重新写回 .e（字节级无损）")
+	fmt.Println("  -fne   - 指定支持库文件还原任意库命令名（可重复或逗号分隔）")
+	fmt.Println("  -fne-list - 仅列出支持库的命令表")
 }
 
 func printInfo(f *epl.EFile, size int, path string) {

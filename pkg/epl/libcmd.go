@@ -39,7 +39,7 @@ var libCmdTables = map[string]map[int32]string{
 		4: "取驱动器数量", 5: "取驱动器列表", 6: "弹出光驱", 7: "关闭光驱",
 		8: "取光驱盘符", 9: "光驱中是否有盘", 10: "取系统进程列表", 11: "终止进程",
 		14: "取系统信息", 15: "取BIOS信息", 16: "取文件版本信息", 17: "取CPU信息",
-		18: "取CPU占用率", 19: "取内存容量信息", 55: "取IP地址",
+		18: "取CPU占用率", 19: "取内存容量信息", 47: "取IP地址",
 	},
 	"cnvpe": {0: "转换可执行文件数据"},
 }
@@ -333,6 +333,8 @@ func init() {
 // lookupLibCommand 按支持库内部名/中文名查命令名。找不到返回空串。
 func lookupLibCommand(lib *LibraryRef, methodID int32) string {
 	if lib == nil { return "" }
+	// 优先查用户通过 -fne 加载的命令表（可覆盖任意库，含第三方库）。
+	if real := lookupFneCommand(lib, methodID); real != "" { return real }
 	var tbl map[int32]string
 	// 先按内部文件名（去扩展名）匹配
 	key := strings.ToLower(strings.TrimSuffix(lib.FileName, ".fnr"))
